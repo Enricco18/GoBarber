@@ -1,8 +1,12 @@
 import * as Yup from 'yup';
-import { startOfHour, isBefore, parseISO } from 'date-fns';
+import { startOfHour, isBefore, parseISO, format, subHours } from 'date-fns';
+import pt from 'date-fns/locale/pt';
+
 import Appointment from '../models/Appointment';
 import User from '../models/User';
 import File from '../models/File';
+
+import Notification from '../schemas/Notification';
 
 class AppointmentController {
   async store(req, res) {
@@ -20,6 +24,12 @@ class AppointmentController {
 
       const { provider_id, date } = req.body;
       const user_id = req.userId;
+
+      if (user_id === provider_id) {
+        return res
+          .status(401)
+          .json({ error: "You can't make a appointment to yourself" });
+      }
 
       const isProvider = await User.findOne({
         where: { id: provider_id, provider: true },
@@ -49,6 +59,18 @@ class AppointmentController {
         provider_id,
         date: hourStart,
         user_id,
+      });
+
+      const client = await User.findByPk(user_id);
+      const formattedDate = format(
+        hourStart,
+        "'dia' dd 'de' MMMM', às' H:mm'h'",
+        { locale: pt }
+      );
+
+      await Notification.create({
+        content: `Novo agendamento de ${client.name} para ${formattedDate} `,
+        user: provider_id,
       });
 
       return res.json(appointment);
@@ -86,6 +108,34 @@ class AppointmentController {
     } catch (error) {
       return res.status(501).json({ error: 'An unexpected error occurred' });
     }
+  }
+
+  async delete(req, res) {
+    const appointment = await Appointment.findByPk(req.params.id);
+
+    if (
+      !(
+        appointment.user_id === req.userId ||
+        appointment.provider_id === req.userId
+      )
+    ) {
+      return res.status(401).json({
+        error: "You don't have permission to delete this appointment.",
+      });
+    }
+
+    const dateWithSub = subHours(appointment.date, 2);
+    if (isBefore(dateWithSub, new Date())) {
+      return res.status(401).json({
+        error: 'You can only cancel appointments 2 hours in advance.',
+      });
+    }
+
+    appointment.canceled_at = new Date();
+
+    appointment.save();
+
+    return res.json({ message: 'ok' });
   }
 }
 export default new AppointmentController();

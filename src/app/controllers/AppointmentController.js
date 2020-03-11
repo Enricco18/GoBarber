@@ -7,6 +7,7 @@ import User from '../models/User';
 import File from '../models/File';
 
 import Notification from '../schemas/Notification';
+import Mail from '../../lib/Mail';
 
 class AppointmentController {
   async store(req, res) {
@@ -111,31 +112,60 @@ class AppointmentController {
   }
 
   async delete(req, res) {
-    const appointment = await Appointment.findByPk(req.params.id);
-
-    if (
-      !(
-        appointment.user_id === req.userId ||
-        appointment.provider_id === req.userId
-      )
-    ) {
-      return res.status(401).json({
-        error: "You don't have permission to delete this appointment.",
+    try {
+      const appointment = await Appointment.findByPk(req.params.id, {
+        include: [
+          {
+            model: User,
+            as: 'provider',
+            attributes: ['id', 'name', 'email'],
+          },
+          {
+            model: User,
+            as: 'user',
+            attributes: ['name'],
+          },
+        ],
       });
-    }
 
-    const dateWithSub = subHours(appointment.date, 2);
-    if (isBefore(dateWithSub, new Date())) {
-      return res.status(401).json({
-        error: 'You can only cancel appointments 2 hours in advance.',
+      if (
+        !(
+          appointment.user_id === req.userId ||
+          appointment.provider_id === req.userId
+        )
+      ) {
+        return res.status(401).json({
+          error: "You don't have permission to delete this appointment.",
+        });
+      }
+
+      const dateWithSub = subHours(appointment.date, 2);
+      if (isBefore(dateWithSub, new Date())) {
+        return res.status(401).json({
+          error: 'You can only cancel appointments 2 hours in advance.',
+        });
+      }
+
+      appointment.canceled_at = new Date();
+
+      await appointment.save();
+      await Mail.sendMail({
+        to: `${appointment.provider.name} <${appointment.provider.email}>`,
+        subject: 'Agendamento Cancelado',
+        template: 'cancellation',
+        context: {
+          provider: appointment.provider.name,
+          user: appointment.user.name,
+          date: format(appointment.date, "'dia' dd 'de' MMMM', às' H:mm'h'", {
+            locale: pt,
+          }),
+        },
       });
+
+      return res.json(appointment);
+    } catch (error) {
+      return res.status(501).json({ error: 'An unexpected error occurred' });
     }
-
-    appointment.canceled_at = new Date();
-
-    appointment.save();
-
-    return res.json({ message: 'ok' });
   }
 }
 export default new AppointmentController();

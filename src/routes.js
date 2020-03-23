@@ -12,6 +12,7 @@ import NotificationController from './app/controllers/NotificationController';
 import multerConfig from './config/multer';
 
 import authMiddleware from './app/middlewares/auth';
+import AvailableController from './app/controllers/AvailableController';
 
 const router = new Router();
 const upload = multer(multerConfig);
@@ -25,6 +26,7 @@ router.use(authMiddleware);
 router.put('/users', UserController.update);
 
 router.get('/providers', ProviderController.index);
+router.get('/providers/:providerId/available', AvailableController.index);
 
 router.post('/files', upload.single('file'), FileController.store);
 
